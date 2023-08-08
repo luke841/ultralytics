@@ -174,7 +174,7 @@ class STrack(BaseTrack):
 
 class BYTETracker:
 
-    def __init__(self, args, frame_rate=30):
+    def __init__(self, args, frame_rate=30, euclidean_threshold=100):
         """Initialize a YOLOv8 object to track objects with given arguments and frame rate."""
         self.tracked_stracks = []  # type: list[STrack]
         self.lost_stracks = []  # type: list[STrack]
@@ -185,7 +185,7 @@ class BYTETracker:
         self.max_time_lost = int(frame_rate / 30.0 * args.track_buffer)
         self.kalman_filter = self.get_kalmanfilter()
         self.reset_id()
-        self._euclidean_threshold = 100
+        self._euclidean_threshold = euclidean_threshold
 
     def update(self, results, img=None):
         """Updates object tracker with new detections and returns tracked object bounding boxes."""
