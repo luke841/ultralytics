@@ -185,7 +185,7 @@ class BYTETracker:
         self.max_time_lost = int(frame_rate / 30.0 * args.track_buffer)
         self.kalman_filter = self.get_kalmanfilter()
         self.reset_id()
-        self._euclidean_threshold = 50
+        self._euclidean_threshold = 320
 
     def update(self, results, img=None):
         """Updates object tracker with new detections and returns tracked object bounding boxes."""
@@ -244,7 +244,6 @@ class BYTETracker:
         # association the untrack to the low score detections
         detections_second = self.init_track(dets_second, scores_second, cls_second, img)
         r_tracked_stracks = [strack_pool[i] for i in u_track if strack_pool[i].state == TrackState.Tracked]
-        # TODO
         dists = matching.iou_distance(r_tracked_stracks, detections_second)
         matches, u_track, u_detection_second = matching.linear_assignment(dists, thresh=0.5)
         for itracked, idet in matches:
@@ -257,15 +256,24 @@ class BYTETracker:
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
 
-        # Step 4: Third Association. Match the tracks and detection based on the euclidean distance
-        if len(u_detection_second) > 0 and len(u_track) > 0:
-            u_detections_second = [detections_second[idx] for idx in u_detection_second]  # Unmatched second detections
+        u_detections_first = [detections[idx] for idx in u_detection]
+        u_detections_second = [detections_second[idx] for idx in u_detection_second]
+        u_detections_pool = self.joint_stracks(u_detections_first, u_detections_second)
+
+        # Step 4: Third association. Match the tracks and detection based on the euclidean distance
+        if len(u_detections_pool) > 0 and len(u_track) > 0:
+            # # Unmatched second detections
+            # u_detections_second = [detections_second[idx] for idx in u_detection_second]
             # Get the right state
             r_tracked_stracks = [r_tracked_stracks[i] for i in u_track if r_tracked_stracks[i].state == TrackState.Tracked]
 
             track_centroids = np.array([track.centroid for track in r_tracked_stracks])
-            det_centroids = np.array([det.centroid for det in u_detections_second])
+            det_centroids = np.array([det.centroid for det in u_detections_pool])
+
+            print("track centroid: ", track_centroids)
+            print("track det_centroids: ", det_centroids)
             euclidean_dists = matching.euclidean_distance(track_centroids, det_centroids)
+            print(euclidean_dists)
 
             matches, u_track, u_detection_third = matching.linear_assignment(
                 euclidean_dists,
@@ -274,7 +282,8 @@ class BYTETracker:
 
             for itracked, idet in matches:
                 track = r_tracked_stracks[itracked]
-                det = u_detections_second[idet]
+                print(f"Third associated {track.idx}")
+                det = u_detections_pool[idet]
                 if track.state == TrackState.Tracked:
                     track.update(det, self.frame_id)
                     activated_stracks.append(track)
@@ -282,9 +291,13 @@ class BYTETracker:
                     track.re_activate(det, self.frame_id, new_id=False)
                     refind_stracks.append(track)
 
-            detections = [u_detections_second[idx] for idx in u_detection_third]
+            detections = [
+                u_detections_pool[idx]
+                for idx in u_detection_third
+                if u_detections_pool[idx].score > self.args.track_high_thresh
+            ]
         else:
-            detections = [detections[i] for i in u_detection]
+            detections = u_detections_first
 
         unconfirmed = [t for t in self.tracked_stracks if not t.is_activated]
 
