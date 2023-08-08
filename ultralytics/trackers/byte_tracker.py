@@ -128,7 +128,7 @@ class STrack(BaseTrack):
 
     @property
     def centroid(self):
-        tlwh = self._tlwh
+        tlwh = self.tlwh
         return np.array([
             tlwh[0] + tlwh[2] / 2,
             tlwh[1] + tlwh[3] / 2,
@@ -185,7 +185,7 @@ class BYTETracker:
         self.max_time_lost = int(frame_rate / 30.0 * args.track_buffer)
         self.kalman_filter = self.get_kalmanfilter()
         self.reset_id()
-        self._euclidean_threshold = 320
+        self._euclidean_threshold = 100
 
     def update(self, results, img=None):
         """Updates object tracker with new detections and returns tracked object bounding boxes."""
@@ -262,18 +262,13 @@ class BYTETracker:
 
         # Step 4: Third association. Match the tracks and detection based on the euclidean distance
         if len(u_detections_pool) > 0 and len(u_track) > 0:
-            # # Unmatched second detections
-            # u_detections_second = [detections_second[idx] for idx in u_detection_second]
             # Get the right state
             r_tracked_stracks = [r_tracked_stracks[i] for i in u_track if r_tracked_stracks[i].state == TrackState.Tracked]
 
             track_centroids = np.array([track.centroid for track in r_tracked_stracks])
             det_centroids = np.array([det.centroid for det in u_detections_pool])
 
-            print("track centroid: ", track_centroids)
-            print("track det_centroids: ", det_centroids)
             euclidean_dists = matching.euclidean_distance(track_centroids, det_centroids)
-            print(euclidean_dists)
 
             matches, u_track, u_detection_third = matching.linear_assignment(
                 euclidean_dists,
@@ -282,7 +277,6 @@ class BYTETracker:
 
             for itracked, idet in matches:
                 track = r_tracked_stracks[itracked]
-                print(f"Third associated {track.idx}")
                 det = u_detections_pool[idet]
                 if track.state == TrackState.Tracked:
                     track.update(det, self.frame_id)
@@ -344,10 +338,10 @@ class BYTETracker:
         if len(self.removed_stracks) > 1000:
             self.removed_stracks = self.removed_stracks[-999:]  # clip remove stracks to 1000 maximum
 
-        # print(len([i for i in self.tracked_stracks if i.is_activated]))
         return np.asarray(
             [x.tlbr.tolist() + [x.track_id, x.score, x.cls, x.idx] for x in self.tracked_stracks if x.is_activated],
-            dtype=np.float32)
+            dtype=np.float32
+        )
 
     def get_kalmanfilter(self):
         """Returns a Kalman filter object for tracking bounding boxes."""
