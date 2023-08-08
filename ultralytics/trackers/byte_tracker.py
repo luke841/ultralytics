@@ -127,6 +127,14 @@ class STrack(BaseTrack):
         return ret
 
     @property
+    def centroid(self):
+        tlwh = self._tlwh
+        return np.array([
+            tlwh[0] + tlwh[2],
+            tlwh[1] + tlwh[3],
+        ])
+
+    @property
     def tlbr(self):
         """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
         `(top left, bottom right)`.
@@ -177,6 +185,7 @@ class BYTETracker:
         self.max_time_lost = int(frame_rate / 30.0 * args.track_buffer)
         self.kalman_filter = self.get_kalmanfilter()
         self.reset_id()
+        self._euclidean_threshold = 50
 
     def update(self, results, img=None):
         """Updates object tracker with new detections and returns tracked object bounding boxes."""
@@ -205,14 +214,10 @@ class BYTETracker:
         cls_second = cls[inds_second]
 
         detections = self.init_track(dets, scores_keep, cls_keep, img)
+
         # Add newly detected tracklets to tracked_stracks
-        unconfirmed = []
-        tracked_stracks = []  # type: list[STrack]
-        for track in self.tracked_stracks:
-            if not track.is_activated:
-                unconfirmed.append(track)
-            else:
-                tracked_stracks.append(track)
+        tracked_stracks = [track for track in self.tracked_stracks if track.is_activated]
+
         # Step 2: First association, with high score detection boxes
         strack_pool = self.joint_stracks(tracked_stracks, self.lost_stracks)
         # Predict the current location with KF
@@ -234,6 +239,7 @@ class BYTETracker:
             else:
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
+
         # Step 3: Second association, with low score detection boxes
         # association the untrack to the low score detections
         detections_second = self.init_track(dets_second, scores_second, cls_second, img)
@@ -251,13 +257,45 @@ class BYTETracker:
                 track.re_activate(det, self.frame_id, new_id=False)
                 refind_stracks.append(track)
 
+        # Step 4: Third Association. Match the tracks and detection based on the euclidean distance
+        if len(u_detection_second) > 0 and len(u_track) > 0:
+            u_detections_second = [detections_second[idx] for idx in u_detection_second]  # Unmatched second detections
+            # Get the right state
+            r_tracked_stracks = [r_tracked_stracks[i] for i in u_track if r_tracked_stracks[i].state == TrackState.Tracked]
+
+            track_centroids = np.array([track.centroid for track in r_tracked_stracks])
+            det_centroids = np.array([det.centroid for det in u_detections_second])
+            euclidean_dists = matching.euclidean_distance(track_centroids, det_centroids)
+
+            matches, u_track, u_detection_third = matching.linear_assignment(
+                euclidean_dists,
+                thresh=self._euclidean_threshold
+            )
+
+            for itracked, idet in matches:
+                track = r_tracked_stracks[itracked]
+                det = u_detections_second[idet]
+                if track.state == TrackState.Tracked:
+                    track.update(det, self.frame_id)
+                    activated_stracks.append(track)
+                else:
+                    track.re_activate(det, self.frame_id, new_id=False)
+                    refind_stracks.append(track)
+
+            detections = [u_detections_second[idx] for idx in u_detection_third]
+        else:
+            detections = [detections[i] for i in u_detection]
+
+        unconfirmed = [t for t in self.tracked_stracks if not t.is_activated]
+
         for it in u_track:
             track = r_tracked_stracks[it]
             if track.state != TrackState.Lost:
                 track.mark_lost()
                 lost_stracks.append(track)
+
         # Deal with unconfirmed tracks, usually tracks with only one beginning frame
-        detections = [detections[i] for i in u_detection]
+        # detections = [detections[i] for i in u_detection]
         dists = self.get_dists(unconfirmed, detections)
         matches, u_unconfirmed, u_detection = matching.linear_assignment(dists, thresh=0.7)
         for itracked, idet in matches:
@@ -267,6 +305,7 @@ class BYTETracker:
             track = unconfirmed[it]
             track.mark_removed()
             removed_stracks.append(track)
+
         # Step 4: Init new stracks
         for inew in u_detection:
             track = detections[inew]
@@ -274,6 +313,7 @@ class BYTETracker:
                 continue
             track.activate(self.kalman_filter, self.frame_id)
             activated_stracks.append(track)
+
         # Step 5: Update state
         for track in self.lost_stracks:
             if self.frame_id - track.end_frame > self.max_time_lost:
@@ -290,6 +330,8 @@ class BYTETracker:
         self.removed_stracks.extend(removed_stracks)
         if len(self.removed_stracks) > 1000:
             self.removed_stracks = self.removed_stracks[-999:]  # clip remove stracks to 1000 maximum
+
+        # print(len([i for i in self.tracked_stracks if i.is_activated]))
         return np.asarray(
             [x.tlbr.tolist() + [x.track_id, x.score, x.cls, x.idx] for x in self.tracked_stracks if x.is_activated],
             dtype=np.float32)

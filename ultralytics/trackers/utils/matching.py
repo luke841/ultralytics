@@ -17,6 +17,20 @@ except (ImportError, AssertionError, AttributeError):
     import lap
 
 
+def euclidean_distance(a_centroids, b_centroids):
+    """
+    Compute cost based on euclidean distance
+    :type atlbrs: list[tlbr] | np.ndarray
+    :type atlbrs: list[tlbr] | np.ndarray
+
+    :rtype ious np.ndarray
+    """
+    distance_values = []
+    for a_centroid in a_centroids:
+        distance_values.append(np.linalg.norm(a_centroid - b_centroids, axis=1))
+
+    return np.array(distance_values)
+
 def merge_matches(m1, m2, shape):
     """Merge two sets of matches and return matched and unmatched indices."""
     O, P, Q = shape
