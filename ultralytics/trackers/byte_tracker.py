@@ -130,8 +130,8 @@ class STrack(BaseTrack):
     def centroid(self):
         tlwh = self._tlwh
         return np.array([
-            tlwh[0] + tlwh[2],
-            tlwh[1] + tlwh[3],
+            tlwh[0] + tlwh[2] / 2,
+            tlwh[1] + tlwh[3] / 2,
         ])
 
     @property
