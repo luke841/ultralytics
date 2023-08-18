@@ -1,6 +1,7 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
 import numpy as np
+from copy import deepcopy
 
 from .basetrack import BaseTrack, TrackState
 from .utils import matching
@@ -177,6 +178,7 @@ class BYTETracker:
         self.max_time_lost = int(frame_rate / 30.0 * args.track_buffer)
         self.kalman_filter = self.get_kalmanfilter()
         self.reset_id()
+        self.previous_kalman_tracks: list[STrack] = []
 
     def update(self, results, img=None):
         """Updates object tracker with new detections and returns tracked object bounding boxes."""
@@ -292,7 +294,8 @@ class BYTETracker:
             self.removed_stracks = self.removed_stracks[-999:]  # clip remove stracks to 1000 maximum
         return np.asarray(
             [x.tlbr.tolist() + [x.track_id, x.score, x.cls, x.idx] for x in self.tracked_stracks if x.is_activated],
-            dtype=np.float32)
+            dtype=np.float32
+        )
 
     def get_kalmanfilter(self):
         """Returns a Kalman filter object for tracking bounding boxes."""
