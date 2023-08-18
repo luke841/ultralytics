@@ -224,6 +224,7 @@ class BYTETracker:
             STrack.multi_gmc(strack_pool, warp)
             STrack.multi_gmc(unconfirmed, warp)
 
+        self.previous_kalman_tracks = deepcopy(strack_pool)
         dists = self.get_dists(strack_pool, detections)
         matches, u_track, u_detection = matching.linear_assignment(dists, thresh=self.args.match_thresh)
 
